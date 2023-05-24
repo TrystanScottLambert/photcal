@@ -1,2 +1,1 @@
-# photcal
-Package for photometrically calibrating images based on cataloged surveys.
+# Photometry_W2246
