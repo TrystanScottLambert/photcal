@@ -20,7 +20,7 @@ A full derivation of the method is available in the examples folder.
 The first step to use the pacakge is to load in the different magnitude values for the different stars. To do this we provide the class ```FilterMag``` which takes in a name, a numpy array of magnitudes for the different stars, and an array of their associated errors. For example, if we wanted to calibrate GMOS r-band data with PANSTARRS we would identify the GMOS r-band stars using a software like sextractor or DAOstarfinder, as well as identify the stars in the PANSTARRS catalog. We could then create the ```FilterMag``` objects like:
 
 ```python
-from photcat import FilterMag, Color, Settings, get_photometric_transformation
+from photcat.photometric_calibration import FilterMag, Color, Settings, get_photometric_transformation
 r_band_obs = FilterMag('r_gmos', r_gmos, np.array(re_gmos))
 r_band_cat = FilterMag('r_pan', r_pan, np.array(re_pan))
 g_band_cat = FilterMag('g_pan', g_pan, np.array(ge_pan))
