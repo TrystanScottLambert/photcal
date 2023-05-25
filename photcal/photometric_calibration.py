@@ -130,7 +130,7 @@ class Transformation:
         """Determines the zero point for converting instrumental mags into catalog mags."""
         return -self.constants[0]
 
-    def get_ap_corr_zero_point(self, aperture_radius: float, seeing: float) -> float:
+    def get_ap_corr_zpt(self, aperture_radius: float, seeing: float) -> float:
         """
         Returns the zero point which has been aperture corrected. If the user wishes to use
         this zero point later on, then they will have to add a 'k_mag' correction to this zpt.
