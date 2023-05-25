@@ -209,9 +209,10 @@ class TestAgainstExample(unittest.TestCase):
 
     def test_transform(self):
         """Return the transform and determine if it is correct."""
-        corrected_mags = self.transformation.transform(np.array(self.r_gmos))
+        corrected_mags = np.array(self.r_gmos) + self.transformation.zero_point
         for i, value in enumerate(self.cal_gmos_r):
             self.assertAlmostEqual(value, corrected_mags[i])
+        
 
 if __name__ == '__main__':
     unittest.main()

@@ -10,6 +10,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clipped_stats
 
+from k_constant import calculate_k_constant_mag
+
 
 @dataclass
 class FilterMag:
@@ -42,12 +44,19 @@ def get_unique_filters(list_filters: list[FilterMag]) -> list[FilterMag]:
     return unique_filters
 
 
-@dataclass
 class Transformation:
     """All the inputs required to run the calibraton."""
-    observed_mag: FilterMag
-    catalog_mag: FilterMag
-    colors: list[Color]
+
+    def __init__(
+            self, observed_mag: FilterMag, catalog_mag: FilterMag, colors: list[Color]):
+        """
+        'observed_mag' is the FilterMag object of the observed magnitudes. Likewise, 
+        'catalog_mag' is the FilterMag object of the catalog magnitudes. 'colors' is the 
+        list of Color objects which represent the color terms. 
+        """
+        self.observed_mag = observed_mag
+        self.catalog_mag = catalog_mag
+        self.colors = colors
 
     @cached_property
     def sigma_squared(self) -> np.ndarray:
@@ -116,13 +125,27 @@ class Transformation:
         b_vector = self._create_vector()
         return np.linalg.inv(a_matrix).dot(b_vector)
 
-    def transform(self, instrumental_magnitudes: np.ndarray) -> np.ndarray:
-        """Determines the transformation for converting instrumental mags into catalog mags."""
-        return instrumental_magnitudes - self.constants[0]
+    @property
+    def zero_point(self) -> float:
+        """Determines the zero point for converting instrumental mags into catalog mags."""
+        return -self.constants[0]
+
+    def get_ap_corr_zero_point(self, aperture_radius: float, seeing: float) -> float:
+        """
+        Returns the zero point which has been aperture corrected. If the user wishes to use
+        this zero point later on, then they will have to add a 'k_mag' correction to this zpt.
+        This can be done using the calculate_k_constant_mag function in the k_constant module.
+
+        'aperture_radius' is the radius of the apertures used for determining the
+        magnitudes and the seeing of the image. Both 'aperture_radius' and 'seeing' must be 
+        given in the same units.
+        """
+        return self.zero_point - calculate_k_constant_mag(aperture_radius, seeing)
+
 
     def diagnose(self):
         """Plot several diagnostic plots as well as information regarding the fit."""
-        obs_mag_cal = self.observed_mag.array - self.constants[0]
+        obs_mag_cal = self.observed_mag.array + self.zero_point
         cat_mag_cal = self.catalog_mag.array + self.constants[1]*(self.color_terms[1]) + self.constants[2]*(self.color_terms[2])
         mag_diff = obs_mag_cal - cat_mag_cal
 
