@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clipped_stats
 
-from k_constant import calculate_k_constant_mag
+from .k_constant import calculate_k_constant_mag
 
 
 @dataclass

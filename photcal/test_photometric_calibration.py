@@ -7,8 +7,6 @@ import unittest
 import numpy as np
 from astropy.table import Table
 
-
-sys.path.insert(1, '../photcal/')
 from photometric_calibration import FilterMag, Transformation, Color, get_unique_filters
 
 def read_in_test_data():
