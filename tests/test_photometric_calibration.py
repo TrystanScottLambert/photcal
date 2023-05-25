@@ -9,8 +9,7 @@ from astropy.table import Table
 
 
 sys.path.insert(1, '../photcal/')
-from photometric_calibration import FilterMag, Settings, Color, create_matrix,\
-      create_vector, get_unique_filters, calculate_constants, get_photometric_transformation
+from photometric_calibration import FilterMag, Transformation, Color, get_unique_filters
 
 def read_in_test_data():
     """Reads in the test file."""
@@ -43,11 +42,11 @@ class TestColor(unittest.TestCase):
         zi_color = Color('zi_color', i_band_cat, z_band_cat)
         self.assertListEqual(list(zi_color.value), list(i_band_cat.array - z_band_cat.array))
 
-class TestSetting(unittest.TestCase):
-    """Testing that the Settings class is working correctly."""
+class TestTransformation(unittest.TestCase):
+    """Testing that the Transformation class is working correctly."""
 
-    def create_settings_object(self):
-        """Creates a settings object which can be used in tests."""
+    def create_transformation_object(self):
+        """Creates a Transformation object which can be used in tests."""
         data = read_in_test_data()
         i_band_obs = FilterMag('i_obs', data[0], data[1])
         i_band_cat = FilterMag('i_cat', data[2], data[3])
@@ -55,31 +54,25 @@ class TestSetting(unittest.TestCase):
         r_band_cat = FilterMag('r_cat', data[6], data[7])
         iz_color = Color('iz_color', i_band_cat, z_band_cat)
         ri_color = Color('ir_color', r_band_cat, z_band_cat)
-        settings = Settings(i_band_obs, i_band_cat, [iz_color, ri_color])
-        return settings
+        transformation = Transformation(i_band_obs, i_band_cat, [iz_color, ri_color])
+        return transformation
 
     def setup_test(self):
-        """Creates the data and the settings object which are needed for tests."""
+        """Creates the data and the Transformation object which are needed for tests."""
         data = read_in_test_data()
-        settings = self.create_settings_object()
-        return data, settings
-
-    def test_reading_in(self):
-        """testing that the class is reading in multiple color terms correctly."""
-        data, settings = self.setup_test()
-        self.assertListEqual(list(settings.observed_mag.array), list(FilterMag('i_obs', data[0], data[1]).array))
-        self.assertIsInstance(settings, Settings)
+        transformation = self.create_transformation_object()
+        return data, transformation
 
     def test_sigma_squared(self):
         """testing if the error term is being calculated correctly"""
-        data, settings = self.setup_test()
-        self.assertListEqual(list(settings.sigma_squared),
+        data, transformation = self.setup_test()
+        self.assertListEqual(list(transformation.sigma_squared),
                              list(data[1]**2 + data[3]**2 + data[5]**2 + data[7]**2))
 
     def test_delta_m(self):
         """Testing that delta m give the correct value."""
-        data, settings = self.setup_test()
-        self.assertListEqual(list(settings.delta_m), list(data[0] - data[2]))
+        data, transformation = self.setup_test()
+        self.assertListEqual(list(transformation.delta_m), list(data[0] - data[2]))
 
     def test_color_terms(self):
         """testing that the color terms are correct"""
@@ -90,13 +83,34 @@ class TestSetting(unittest.TestCase):
         r_band_cat = FilterMag('r_cat', data[6], data[7])
         iz_color = Color('iz_color', i_band_cat, z_band_cat)
         ri_color = Color('ir_color', r_band_cat, z_band_cat)
-        settings = Settings(i_band_obs, i_band_cat, [iz_color, ri_color])
+        transformation = Transformation(i_band_obs, i_band_cat, [iz_color, ri_color])
         color_terms = [
             np.ones(len(i_band_cat.array)),
             i_band_cat.array - z_band_cat.array,
             r_band_cat.array - z_band_cat.array]
         for i, color_term in enumerate(color_terms):
-            self.assertListEqual(list(settings.color_terms[i]), list(color_term))
+            self.assertListEqual(list(transformation.color_terms[i]), list(color_term))
+    
+    def test_matrix(self):
+        """testing matrix works."""
+        _, transformation = self.setup_test()
+
+        a_matrix = transformation._create_matrix()
+
+        self.assertEqual(a_matrix.shape, (3, 3))
+        self.assertEqual(a_matrix[1,1], np.sum((transformation.color_terms[1]*transformation.color_terms[1])/transformation.sigma_squared))
+        self.assertEqual(a_matrix[1,2], np.sum((transformation.color_terms[1]*transformation.color_terms[2])/transformation.sigma_squared))
+        self.assertEqual(a_matrix[0,0], np.sum((transformation.color_terms[0]*transformation.color_terms[0])/transformation.sigma_squared))
+        self.assertEqual(a_matrix[-1,1], np.sum((transformation.color_terms[-1]*transformation.color_terms[1])/transformation.sigma_squared))
+        self.assertEqual(a_matrix[-1,-1], np.sum((transformation.color_terms[-1]*transformation.color_terms[-1])/transformation.sigma_squared))
+    
+    def test_b_vector(self):
+        """testing that the b vector is correct."""
+        _, transformation = self.setup_test()
+        b_vector = transformation._create_vector()
+
+        for i, color_term in enumerate(transformation.color_terms):
+            self.assertEqual(b_vector[i], np.sum(((transformation.delta_m) * (color_term))/transformation.sigma_squared))
 
 
 class TestUniqueFilters(unittest.TestCase):
@@ -113,48 +127,6 @@ class TestUniqueFilters(unittest.TestCase):
         unique_list = get_unique_filters(filter_list)
         self.assertListEqual(unique_list, [i_band_cat, i_band_obs, z_band_cat, r_band_cat])
 
-
-class TestAMatrix(unittest.TestCase):
-    """Testing that the matrix is being made correctly."""
-
-    def test_matrix(self):
-        """testing matrix works."""
-        data = read_in_test_data()
-        i_band_obs = FilterMag('i_obs', data[0], data[1])
-        i_band_cat = FilterMag('i_cat', data[2], data[3])
-        z_band_cat = FilterMag('z_cat', data[4], data[5])
-        r_band_cat = FilterMag('r_cat', data[6], data[7])
-        iz_color = Color('iz_color', i_band_cat, z_band_cat)
-        ri_color = Color('ir_color', r_band_cat, z_band_cat)
-        settings = Settings(i_band_obs, i_band_cat, [iz_color, ri_color])
-
-        a_matrix = create_matrix(settings)
-
-        self.assertEqual(a_matrix.shape, (3, 3))
-        self.assertEqual(a_matrix[1,1], np.sum((settings.color_terms[1]*settings.color_terms[1])/settings.sigma_squared))
-        self.assertEqual(a_matrix[1,2], np.sum((settings.color_terms[1]*settings.color_terms[2])/settings.sigma_squared))
-        self.assertEqual(a_matrix[0,0], np.sum((settings.color_terms[0]*settings.color_terms[0])/settings.sigma_squared))
-        self.assertEqual(a_matrix[-1,1], np.sum((settings.color_terms[-1]*settings.color_terms[1])/settings.sigma_squared))
-        self.assertEqual(a_matrix[-1,-1], np.sum((settings.color_terms[-1]*settings.color_terms[-1])/settings.sigma_squared))
-        
-class TestBVector(unittest.TestCase):
-    """Testing that the b vector is being made correctly."""
-
-    def test_b_vector(self):
-        """testing that the b vector is correct."""
-        data = read_in_test_data()
-        i_band_obs = FilterMag('i_obs', data[0], data[1])
-        i_band_cat = FilterMag('i_cat', data[2], data[3])
-        z_band_cat = FilterMag('z_cat', data[4], data[5])
-        r_band_cat = FilterMag('r_cat', data[6], data[7])
-        iz_color = Color('iz_color', i_band_cat, z_band_cat)
-        ri_color = Color('ir_color', r_band_cat, z_band_cat)
-        settings = Settings(i_band_obs, i_band_cat, [iz_color, ri_color])
-
-        b_vector = create_vector(settings)
-
-        for i, color_term in enumerate(settings.color_terms):
-            self.assertEqual(b_vector[i], np.sum(((settings.delta_m) * (color_term))/settings.sigma_squared))
 
 class TestAgainstExample(unittest.TestCase):
     """We use an example which was determined by hand to test that the code is behaving in a similar way"""
@@ -198,7 +170,7 @@ class TestAgainstExample(unittest.TestCase):
     C2 = float(const[1])
     C3 = float(const[2])
 
-    cal_gmos_r =r_gmos - C1 - C2*(g_pan-r_pan) - C3*(i_pan-r_pan)
+    cal_gmos_r =r_gmos - C1
 
     #New method
     r_band_obs = FilterMag('r_gmos', np.array(r_gmos), np.array(re_gmos))
@@ -207,17 +179,17 @@ class TestAgainstExample(unittest.TestCase):
     i_band_cat = FilterMag('i_pan', np.array(i_pan), np.array(ie_pan))
     color_gr = Color('color_gr', g_band_cat, r_band_cat)
     color_ir = Color('color_ir', i_band_cat, r_band_cat)
-    settings = Settings(r_band_obs, r_band_cat, [color_gr, color_ir])
+    transformation = Transformation(r_band_obs, r_band_cat, [color_gr, color_ir])
 
 
     def test_sigma_squared(self):
         """testing that both values of sigma squared are the same."""
-        self.assertListEqual(list(self.settings.sigma_squared), list(self.sigma))
+        self.assertListEqual(list(self.transformation.sigma_squared), list(self.sigma))
 
     def test_matrix(self):
         """testing that the matrix values are the same from the manual and generalized example."""
 
-        a_matrix = create_matrix(self.settings)
+        a_matrix = self.transformation._create_matrix()
         for i in range(3):
             for j in range(3):
                 self.assertAlmostEqual(self.A[i, j], a_matrix[i,j])
@@ -225,22 +197,19 @@ class TestAgainstExample(unittest.TestCase):
     def test_vector(self):
         """Testing that the vector is the same as the manual method"""
 
-        b_vector = create_vector(self.settings)
+        b_vector = self.transformation._create_vector()
         for i, value in enumerate(self.B):
             self.assertAlmostEqual(value, b_vector[i])
 
     def test_constants(self):
         """Testing that the constants are the same as the given example."""
-        a_matrix = create_matrix(self.settings)
-        b_vector = create_vector(self.settings)
-        constant_values = calculate_constants(a_matrix, b_vector)
+        constant_values = self.transformation.constants
         for i, value in enumerate(self.const):
             self.assertAlmostEqual(value, constant_values[i])
 
     def test_transform(self):
         """Return the transform and determine if it is correct."""
-        trans = get_photometric_transformation(self.settings)
-        corrected_mags = trans(np.array(self.r_gmos))
+        corrected_mags = self.transformation.transform(np.array(self.r_gmos))
         for i, value in enumerate(self.cal_gmos_r):
             self.assertAlmostEqual(value, corrected_mags[i])
 

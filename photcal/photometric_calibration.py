@@ -5,19 +5,11 @@ telescope.
 """
 
 from dataclasses import dataclass
-from functools import cached_property, partial
+from functools import cached_property
 import numpy as np
+import matplotlib.pyplot as plt
+from astropy.stats import sigma_clipped_stats
 
-
-def photometric_transformation(m_inst: np.ndarray, constants: np.ndarray, color_terms: np.ndarray):
-    """
-    General form of the transformation from instrumental
-    magnitude to photometrically corrected mag.
-    """
-    constant_terms = np.zeros(len(color_terms[0]))
-    for i, color_term in enumerate(color_terms):
-        constant_terms -= constants[i] * color_term
-    return m_inst + constant_terms
 
 @dataclass
 class FilterMag:
@@ -51,7 +43,7 @@ def get_unique_filters(list_filters: list[FilterMag]) -> list[FilterMag]:
 
 
 @dataclass
-class Settings:
+class Transformation:
     """All the inputs required to run the calibraton."""
     observed_mag: FilterMag
     catalog_mag: FilterMag
@@ -94,37 +86,61 @@ class Settings:
             filters.append(color.filter_2)
         return get_unique_filters(filters)
 
-def create_matrix(settings: Settings) -> np.array:
-    """
-    Creates the A matrix associated with the color terms. 
-    """
-    a_matrix = []
-    for color_term in settings.color_terms:
-        row = []
-        for other_color_term in settings.color_terms:
-            row.append(np.sum((color_term * other_color_term)/settings.sigma_squared))
-        a_matrix.append(row)
-    return np.array(a_matrix)
+    def _create_matrix(self) -> np.array:
+        """
+        Creates the A matrix associated with the color terms. 
+        """
+        a_matrix = []
+        for color_term in self.color_terms:
+            row = []
+            for other_color_term in self.color_terms:
+                row.append(np.sum((color_term * other_color_term)/self.sigma_squared))
+            a_matrix.append(row)
+        return np.array(a_matrix)
 
-def create_vector(settings: Settings) -> np.array:
-    """
-    Creates the b vector which is associated with the 
-    """
-    b_vector = []
-    for color_term in settings.color_terms:
-        b_vector.append(
-            np.sum(((settings.delta_m) * color_term) / (settings.sigma_squared))
-        )
-    return np.array(b_vector)
+    def _create_vector(self) -> np.array:
+        """
+        Creates the b vector which is associated with the 
+        """
+        b_vector = []
+        for color_term in self.color_terms:
+            b_vector.append(
+                np.sum(((self.delta_m) * color_term) / (self.sigma_squared))
+            )
+        return np.array(b_vector)
 
-def calculate_constants(a_matrix:np.matrix, b_vector: np.ndarray) -> np.ndarray:
-    """Calculates the values of the constants."""
-    return np.linalg.inv(a_matrix).dot(b_vector)
+    @cached_property
+    def constants(self) -> np.ndarray:
+        """Calculates the values of the constants."""
+        a_matrix = self._create_matrix()
+        b_vector = self._create_vector()
+        return np.linalg.inv(a_matrix).dot(b_vector)
 
-def get_photometric_transformation(settings: Settings) -> callable:
-    """Determines the transformation for converting instrumental mags into catalog mags."""
-    a_matrix = create_matrix(settings)
-    b_vector = create_vector(settings)
-    constants = calculate_constants(a_matrix, b_vector)
-    transformation = partial(photometric_transformation, constants = constants, color_terms = settings.color_terms)
-    return transformation
+    def transform(self, instrumental_magnitudes: np.ndarray) -> np.ndarray:
+        """Determines the transformation for converting instrumental mags into catalog mags."""
+        return instrumental_magnitudes - self.constants[0]
+
+    def diagnose(self):
+        """Plot several diagnostic plots as well as information regarding the fit."""
+        obs_mag_cal = self.observed_mag.array - self.constants[0]
+        cat_mag_cal = self.catalog_mag.array + self.constants[1]*(self.color_terms[1]) + self.constants[2]*(self.color_terms[2])
+        mag_diff = obs_mag_cal - cat_mag_cal
+
+        mean, median, std = sigma_clipped_stats(mag_diff)
+        print('mean:', mean, 'median:', median, 'standard deviation:', std)
+
+        fig, axs = plt.subplots(nrows=1, ncols=3, figsize=(12, 4))
+        axs[0].plot(cat_mag_cal, self.observed_mag.array, 'o')
+        axs[0].set_xlabel('Predicted catalog expected magnitudes')
+        axs[0].set_ylabel('Instrumental magnitudes')
+
+        axs[1].plot(obs_mag_cal, cat_mag_cal, 'o')
+        axs[1].set_xlabel('Calibrated instrumental magnitudes')
+        axs[1].set_ylabel('Predicted catalog expected magnitudes')
+
+        axs[2].plot(self.catalog_mag.array, self.observed_mag.array-self.catalog_mag.array, 'o')
+        axs[2].set_xlabel('Catalog Magnitudes')
+        axs[2].set_ylabel('Instrumental Magnitudes - Catalog Magnitudes')
+
+        plt.subplots_adjust(wspace=0.4)
+        plt.show()
